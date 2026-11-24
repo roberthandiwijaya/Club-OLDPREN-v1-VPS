@@ -159,6 +159,7 @@ select { max-width: 100%; }
 .host-list small { display: block; }
 .host-list .compact-label { min-width: 110px; }
 .host-list select { min-height: 36px; padding: 4px 6px; }
+.host-list .attendance-ready { background: #bbf7d0; border-color: #15803d; color: #14532d; }
 .host-list .actions { flex: 0 0 auto; }
 .roster-page { max-width: 760px; margin-inline: auto; }
 .roster-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
