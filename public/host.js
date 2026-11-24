@@ -51,7 +51,7 @@ export async function host() {
         const status = session.attendance[player.id]?.status || 'absent';
         return '<li><div><strong>' + esc(player.display) + '</strong>' + (signups.includes(player.id) ? '<small>Sudah daftar main</small>' : '') + '</div>' +
           tierBadge(player.tier) + '<label class="compact-label"><span class="sr">Kehadiran ' + esc(player.display) + '</span><select data-attendance="' + esc(player.id) +
-          '">' + statusOption(status) + '</select></label></li>';
+          '"' + (status === 'ready' ? ' class="attendance-ready"' : '') + '>' + statusOption(status) + '</select></label></li>';
       }).join('') + '</ul>' : empty('Tambahkan pemain dari tab Roster.')) + '</details>';
   }
 
