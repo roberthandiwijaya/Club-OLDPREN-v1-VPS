@@ -15,12 +15,12 @@ npm start
 
 Buka http://localhost:3000/host. Username dan password kedua host dibuat saat setup dan disimpan di file .env. Buka file itu di perangkat sendiri. Dari halaman host, gunakan **Salin link** untuk mendapatkan tautan anggota. Isi roster dengan nama contoh untuk percobaan.
 
-Aplikasi mengikuti waktu **Asia/Jakarta**. Host bisa menyiapkan sesi dan daftar nama sebelum Selasa dan memulai laga kapan saja selama sesi masih terbuka. Pengiriman skor lewat QR tersedia pada tanggal sesi. Tes otomatis memakai tanggal Selasa tetap agar bisa dijalankan setiap hari.
+Aplikasi mengikuti waktu **Asia/Jakarta**. Host bisa menyiapkan sesi dan daftar nama sebelum Selasa dan memulai laga kapan saja selama sesi masih terbuka. Tes otomatis memakai tanggal Selasa tetap agar bisa dijalankan setiap hari.
 
 ## Pasang di VPS Linux
 
 1. Gunakan pengguna Linux khusus aplikasi. Ekstrak ZIP ke folder milik pengguna itu, misalnya /opt/club-oldpren.
-2. Pasang Node.js 24, lalu jalankan npm ci dan npm run setup dari folder aplikasi. Ubah APP_URL di file .env ke alamat utama HTTPS, misalnya https://badminton.example.com. Alamat ini dipakai untuk link anggota, link QR, dan login.
+2. Pasang Node.js 24, lalu jalankan npm ci dan npm run setup dari folder aplikasi. Ubah APP_URL di file .env ke alamat utama HTTPS, misalnya https://badminton.example.com. Alamat ini dipakai untuk link anggota dan login.
 3. Setel izin .env ke 600 dengan chmod 600 .env. Simpan konfigurasi dan folder data di lokasi yang hanya bisa diakses pengguna aplikasi. BIND bawaan memakai 127.0.0.1 agar aplikasi hanya menerima sambungan lokal dari proxy. Gunakan PORT lain jika port 3000 sudah terpakai.
 4. Arahkan domain ke VPS dan pasang reverse proxy HTTPS. Jika VPS sudah memakai Nginx atau Caddy, tambahkan aplikasi ke konfigurasi yang sudah ada. Contoh satu situs untuk Caddy:
 
@@ -58,8 +58,8 @@ Simpan unit sebagai /etc/systemd/system/club-oldpren.service. Jalankan sudo syst
 - **Akun** untuk mengganti username atau password host yang sedang login. Perubahan memerlukan password saat ini dan mengakhiri sesi login akun itu. Password baru harus minimal 14 karakter.
 - **Sesi Selasa** di dashboard anggota untuk memilih nama dan mendaftar pada tanggal yang ditetapkan host. Selama sesi masih terbuka, pendaftaran tetap memakai tanggal sesi itu. Setelah host menutup sesi (atau jika tidak ada sesi terbuka), pendaftaran memakai Selasa berikutnya. Host bisa menentukan tanggal saat membuka sesi dan mengubahnya sebelum laga pertama dimulai. Pendaftaran tetap tersimpan per tanggal.
 - Saran lapangan berdasarkan jumlah yang mendaftar dengan minimum dua lapangan. Mulai dari 21 pemain, saran naik ke tiga lapangan. Di 28 pemain, saran naik ke empat. Host menetapkan jumlah lapangan saat membuka sesi.
-- **Lapangan** di panel host untuk isi tim, meminta saran susunan, dan mulai serta selesaikan laga. Jika QR aktif saat laga selesai, layar menampilkan QR pertandingan. Host juga bisa membuka QR dari tab Skor selama QR aktif.
-- **Skor** di panel host untuk menyetujui, menolak, mengisi, dan mengoreksi skor. Laporan QR diterima pada hari Selasa WIB selama sesi terbuka, setelah laga selesai dan sebelum skor resmi.
+- **Lapangan** di panel host untuk memilih pemain, melihat jumlah main di sesi itu, dan mengatur sampai dua laga antre per lapangan. Saat host menyelesaikan laga, antrean pertama langsung mulai jika semua pemain siap.
+- **Skor** hanya bisa diisi dan dikoreksi oleh host. Laga yang selesai masuk ke **Skor belum diisi** sampai host memasukkan hasil. Hasil bisa berakhir di angka berapa pun selama skornya bulat, minimal nol, dan ada pemenang.
 - **Tierlist** menampilkan semua tier dari SS sampai F secara default. Pilih satu tier untuk memfilter. Win Rate dihitung dari kemenangan dibagi jumlah pertandingan resmi. Tap nama pemain untuk melihat progres kalibrasi, statistik, dan riwayat perubahan tier. Sistem menghitung ulang riwayat setelah koreksi skor resmi.
 - **MVP** menampilkan pemain dengan kenaikan rating bersih tertinggi bulan ini (sementara) dan bulan lalu, mengikuti WIB dan waktu laga selesai. Skor harus resmi. Pemain dengan kenaikan positif yang sama berbagi gelar. Angka rating disimpan di server.
 
@@ -74,6 +74,6 @@ Simpan unit sebagai /etc/systemd/system/club-oldpren.service. Jalankan sudo syst
 
 - Folder data, file .env, dan aset perlu dipertahankan saat mengganti versi aplikasi. Untuk backup paling sederhana, hentikan layanan secara normal, salin folder data, lalu jalankan lagi. Simpan salinan .env di lokasi terpisah yang privat.
 - Username dan password dari .env digunakan untuk membuat akun saat database pertama kali dijalankan. Perubahan dari menu Akun tersimpan di database. Kalau memindahkan database demo lokal ke VPS, ganti dulu password kedua akun di PC.
-- Siapa pun yang menerima tautan grup bisa melihat nama pemain, hasil, statistik, dan mendaftarkan nama dari roster. Kehadiran sebenarnya tetap ditetapkan host. Pemegang QR bisa memilih satu dari empat nama pemain di laga tersebut. Host memeriksa laporan sebelum menetapkan hasil resmi.
-- Hindari mencatat URL lengkap di access log yang bisa dilihat pihak lain. Tautan anggota dan QR masing-masing memuat kode akses. Untuk mengganti tautan grup yang sudah terlanjur tersebar, ganti GROUP_KEY dengan nilai acak baru di .env, restart, dan bagikan tautan baru dari panel host.
+- Siapa pun yang menerima tautan grup bisa melihat nama pemain, hasil, statistik, dan mendaftarkan nama dari roster. Kehadiran sebenarnya tetap ditetapkan host.
+- Hindari mencatat URL lengkap di access log yang bisa dilihat pihak lain. Tautan anggota memuat kode akses. Untuk mengganti tautan grup yang sudah terlanjur tersebar, ganti GROUP_KEY dengan nilai acak baru di .env, restart, dan bagikan tautan baru dari panel host.
 

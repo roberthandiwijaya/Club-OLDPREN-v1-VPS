@@ -12,7 +12,6 @@
     "setup": "node setup.mjs"
   },
   "dependencies": {
-    "express": "5.3.0",
-    "qrcode": "1.5.4"
+    "express": "5.3.0"
   }
 }

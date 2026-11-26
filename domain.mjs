@@ -1,4 +1,4 @@
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomInt } from 'node:crypto';
 
 export const newClub = () => ({ players: [], sessions: [], signups: {}, sequence: 0 });
 export const id = randomUUID;
@@ -50,10 +50,7 @@ export function requireRule(ok, message, status) {
 }
 
 export function validScore(score) {
-  if (!Array.isArray(score) || score.length !== 2 || !score.every(value => Number.isInteger(value) && value >= 0 && value <= 30)) return false;
-  const high = Math.max(...score);
-  const low = Math.min(...score);
-  return (high === 21 && low <= 19) || (high > 21 && high < 30 && high - low === 2) || (high === 30 && (low === 28 || low === 29));
+  return Array.isArray(score) && score.length === 2 && score.every(value => Number.isSafeInteger(value) && value >= 0) && score[0] !== score[1];
 }
 
 const legacyTiers = [['SS', 1160], ['S', 1130], ['A', 1100], ['B', 1075], ['C', 1050], ['D', 1030], ['E', 1015], ['F', -Infinity]];
@@ -145,13 +142,29 @@ const label = player => player.nickname ? player.name + ' (' + player.nickname +
 const byName = (left, right) => label(left).localeCompare(label(right), 'id');
 const activeIds = session => new Set(session.matches.filter(match => match.status === 'active').flatMap(match => match.teams.flat()));
 const queuedIds = session => new Set(session.matches.filter(match => match.status === 'queued').flatMap(match => match.teams.flat()));
+const courtQueue = (session, court) => session.matches.filter(match => match.court === court && match.status === 'queued');
 const playerReady = (club, session, playerId) => session.attendance[playerId]?.status === 'ready' && club.players.some(player => player.id === playerId && !player.archived);
+const canStart = (club, session, match) => {
+  const active = activeIds(session);
+  return match.teams.flat().every(playerId => !active.has(playerId) && playerReady(club, session, playerId));
+};
+function startMatch(match, now) {
+  match.status = 'active';
+  match.startedAt = now.toISOString();
+}
+function shuffle(items, pick) {
+  for (let index = items.length - 1; index > 0; index--) {
+    const other = pick(index + 1);
+    [items[index], items[other]] = [items[other], items[index]];
+  }
+  return items;
+}
 
 export function suggest(club, session, locked) {
   return suggestOptions(club, session, locked)[0];
 }
 
-export function suggestOptions(club, session, locked) {
+export function suggestOptions(club, session, locked, pick = randomInt) {
   requireRule(Array.isArray(locked) && locked.length === 4, 'Pilih empat slot pemain.');
   const busy = activeIds(session);
   const queued = queuedIds(session);
@@ -178,10 +191,7 @@ export function suggestOptions(club, session, locked) {
   if (!needed) return [[locked.slice(0,2),locked.slice(2)]];
   const cutoff = pool[needed-1];
   const fixed = [...pins,...pool.filter(id=>priority(id,cutoff)<0)];
-  let tied = pool.filter(id=>priority(id,cutoff)===0);
-  // Stratified sample across the whole tied queue; rotate the offset as matches finish.
-  const limit = 16;
-  if (tied.length > limit) tied = Array.from({length:limit}, (_,i)=>tied[(Math.floor(i*tied.length/limit)+played.length)%tied.length]);
+  const tied = shuffle(pool.filter(id => priority(id, cutoff) === 0), pick).slice(0, 16);
   const candidates = [];
   function evaluate(ids) {
     for (let mate=1; mate<4; mate++) {
@@ -207,13 +217,14 @@ export function suggestOptions(club, session, locked) {
   // Allow some rating difference when choosing varied lineups.
   const tolerance = 250;
   const bestGap=Math.min(...candidates.map(c=>c.gap));
-  const competitive = candidates.filter(c => c.gap <= bestGap + tolerance);
+  const competitive = shuffle(candidates.filter(c => c.gap <= bestGap + tolerance), pick);
   const shown = new Map(), options = [];
   while (competitive.length && options.length < 5) {
     // Break comparable options in favor of players not already previewed.
     const exposure = c => c.teams.flat().reduce((n,id) => n + (shown.get(id) || 0), 0);
     for (const c of competitive) c.exposure = exposure(c);
-    competitive.sort((a,b) => a.partnersCost - b.partnersCost || a.opponentsCost - b.opponentsCost || a.gap - b.gap || a.exposure - b.exposure);
+    const gapBand = candidate => Math.floor((candidate.gap - bestGap) / 50);
+    competitive.sort((a,b) => a.partnersCost - b.partnersCost || a.opponentsCost - b.opponentsCost || gapBand(a) - gapBand(b) || a.exposure - b.exposure);
     const {teams} = competitive.shift();
     options.push(teams);
     for (const id of teams.flat()) add(shown,id,1);
@@ -234,12 +245,14 @@ export function applyHost(club, data, now, host) {
     const name = validateName(data.name, true);
     const nickname = validateName(data.nickname ?? '', false);
     const initialTier = data.initialTier ?? null;
+    const gender = data.gender ?? null;
+    requireRule(gender === null || ['pria', 'wanita'].includes(gender), 'Pilihan gender tidak valid.');
     requireRule(initialTier === null || legacyStartingRatings.has(initialTier), 'Pilihan tier awal tidak valid.');
     const display = label({ name, nickname }).toLocaleLowerCase('id');
     requireRule(!club.players.some(player => player.id !== data.playerId && label(player).toLocaleLowerCase('id') === display), 'Nama tampilan ini sudah ada.', 409);
     if (action === 'addPlayer') {
       requireRule(club.players.length < 1000, 'Roster penuh.');
-      club.players.push({ id: id(), name, nickname, initialTier, archived: false });
+      club.players.push({ id: id(), name, nickname, initialTier, gender, archived: false });
     } else {
       const player = club.players.find(item => item.id === data.playerId);
       requireRule(player, 'Pemain tidak ditemukan.', 404);
@@ -249,6 +262,7 @@ export function applyHost(club, data, now, host) {
         player.initialTier = initialTier;
       }
       Object.assign(player, { name, nickname });
+      if (data.gender !== undefined) player.gender = gender;
     }
     return;
   }
@@ -288,7 +302,7 @@ export function applyHost(club, data, now, host) {
     session.matches.splice(index, 1);
     return;
   }
-  if (action === 'score' || action === 'rejectReport' || action === 'deleteScore') {
+  if (action === 'score' || action === 'deleteScore') {
     const match = session.matches.find(item => item.id === data.matchId);
     requireRule(match && ['finished', 'unscored'].includes(match.status), 'Hasil hanya bisa dicatat setelah laga selesai.', 409);
     requireRule(match.revision === data.revision, 'Data berubah di perangkat lain. Muat ulang lalu coba lagi.', 409);
@@ -297,24 +311,14 @@ export function applyHost(club, data, now, host) {
       match.audit.push({ previous: match.score, score: null, at: now.toISOString(), host });
       match.score = null;
       match.scoreDeleted = true;
-    } else if (action === 'rejectReport') {
-      requireRule(!match.score, 'Skor sudah resmi.', 409);
-      const report = match.reports.find(item => item.id === data.reportId && item.status === 'pending');
-      requireRule(report, 'Usulan sudah diproses.', 409);
-      report.status = 'rejected';
     } else {
-      requireRule(validScore(data.score), 'Skor belum sesuai aturan satu gim sampai 21, maksimal 30.');
-      const report = data.reportId ? match.reports.find(item => item.id === data.reportId && item.status === 'pending') : null;
-      requireRule(!data.reportId || (report && report.score.every((value, index) => value === data.score[index])), 'Usulan skor sudah berubah.', 409);
+      requireRule(validScore(data.score), 'Isi dua skor bulat yang berbeda, mulai dari 0.');
       if (!match.score || match.score.some((points, index) => points !== data.score[index])) {
         match.audit.push({ previous: match.score, score: data.score, at: now.toISOString(), host });
         match.score = data.score;
         delete match.scoreDeleted;
       }
       match.status = 'finished';
-      for (const item of match.reports) {
-        if (item.status === 'pending') item.status = item === report ? 'accepted' : 'rejected';
-      }
     }
     match.revision++;
     return;
@@ -352,26 +356,45 @@ export function applyHost(club, data, now, host) {
     }
     return;
   }
-  if (action === 'attendance') {
-    const player = club.players.find(item => item.id === data.playerId && !item.archived);
-    requireRule(player, 'Pemain aktif tidak ditemukan.', 404);
+  if (action === 'attendance' || action === 'bulkAttendance') {
+    const ids = action === 'attendance' ? [data.playerId] : data.playerIds;
+    requireRule(Array.isArray(ids) && ids.length > 0 && ids.length <= 1000 &&
+      ids.every(playerId => typeof playerId === 'string') && new Set(ids).size === ids.length, 'Pilih pemain yang valid.');
+    const activePlayers = new Set(club.players.filter(player => !player.archived).map(player => player.id));
+    requireRule(ids.every(playerId => activePlayers.has(playerId)), 'Pemain aktif tidak ditemukan.', 404);
     requireRule(['ready', 'rest', 'left', 'absent'].includes(data.status), 'Status kehadiran tidak valid.');
-    const current = session.attendance[player.id];
-    if (current?.status === data.status || (!current && data.status === 'absent')) return;
-    if (data.status === 'absent') delete session.attendance[player.id];
-    else session.attendance[player.id] = { status: data.status, since: now.toISOString() };
+    const since = now.toISOString();
+    for (const playerId of ids) {
+      if (session.attendance[playerId]?.status === data.status) continue;
+      if (data.status === 'absent') delete session.attendance[playerId];
+      else session.attendance[playerId] = { status: data.status, since };
+    }
     return;
   }
-  if (action === 'createMatch') {
-    requireRule(activeCourts(session).includes(data.court), 'Lapangan tidak valid.');
+  if (action === 'createMatch' || action === 'editQueuedMatch') {
+    const editing = action === 'editQueuedMatch';
+    const match = editing ? session.matches.find(item => item.id === data.matchId) : null;
+    if (editing) {
+      requireRule(match?.status === 'queued', 'Hanya laga yang masih antre yang bisa diedit.', 409);
+      requireRule(match.revision === data.revision, 'Data berubah di perangkat lain. Muat ulang lalu coba lagi.', 409);
+    }
+    const court = match?.court ?? data.court;
+    requireRule(activeCourts(session).includes(court), 'Lapangan tidak valid.');
     const { teams } = data;
     requireRule(Array.isArray(teams) && teams.length === 2 && teams.every(team => Array.isArray(team) && team.length === 2), 'Isi dua pemain untuk setiap tim.');
     const players = teams.flat();
     const active = activeIds(session);
-    const queued = queuedIds(session);
-    requireRule(new Set(players).size === 4 && players.every(playerId => playerReady(club, session, playerId) && !active.has(playerId) && !queued.has(playerId)), 'Pilih empat pemain siap yang belum terjadwal.', 409);
-    requireRule(!session.matches.some(match => match.court === data.court && match.status === 'queued'), 'Lapangan ini sudah punya laga berikutnya.', 409);
-    session.matches.push({ id: id(), court: data.court, teams, status: 'queued', score: null, reports: [], audit: [], revision: 0, code: randomBytes(24).toString('base64url') });
+    const current = new Set(match?.teams.flat());
+    const reserved = new Set(session.matches.filter(item => item !== match && item.status === 'queued').flatMap(item => item.teams.flat()));
+    requireRule(new Set(players).size === 4 && players.every(playerId => !active.has(playerId) && !reserved.has(playerId) &&
+      (current.has(playerId) || playerReady(club, session, playerId))), 'Pemain pengganti harus siap dan belum terjadwal.', 409);
+    if (match) {
+      match.teams = teams;
+      match.revision++;
+    } else {
+      requireRule(courtQueue(session, court).length < 2, 'Antrean lapangan penuh (maksimal 2 laga).', 409);
+      session.matches.push({ id: id(), court, teams, status: 'queued', score: null, audit: [], revision: 0 });
+    }
     return;
   }
 
@@ -379,11 +402,10 @@ export function applyHost(club, data, now, host) {
   requireRule(match, 'Pertandingan tidak ditemukan.', 404);
   if (action === 'startMatch') {
     requireRule(match.status === 'queued', 'Pertandingan sudah berjalan atau selesai.', 409);
-    const active = activeIds(session);
     requireRule(!session.matches.some(item => item.court === match.court && item.status === 'active'), 'Lapangan masih dipakai.', 409);
-    requireRule(match.teams.flat().every(playerId => !active.has(playerId) && playerReady(club, session, playerId)), 'Ada pemain yang sedang main atau belum siap.', 409);
-    match.status = 'active';
-    match.startedAt = now.toISOString();
+    requireRule(courtQueue(session, match.court)[0] === match, 'Mulai antrean pertama atau batalkan dulu.', 409);
+    requireRule(canStart(club, session, match), 'Ada pemain yang sedang main atau belum siap.', 409);
+    startMatch(match, now);
     return;
   }
   if (action === 'finishMatch') {
@@ -395,6 +417,8 @@ export function applyHost(club, data, now, host) {
     for (const playerId of match.teams.flat()) {
       if (playerReady(club, session, playerId)) session.attendance[playerId].since = match.finishedAt;
     }
+    const next = courtQueue(session, match.court)[0];
+    if (next && canStart(club, session, next)) startMatch(next, now);
     return;
   }
   if (action === 'cancelMatch') {
@@ -403,29 +427,6 @@ export function applyHost(club, data, now, host) {
     return;
   }
   throw new RuleError('Tindakan tidak dikenal.');
-}
-
-export function lookupMatch(club, code) {
-  for (const session of club.sessions) {
-    const match = session.matches.find(item => item.code === code);
-    if (match) return { session, match };
-  }
-  throw new RuleError('QR pertandingan tidak ditemukan.', 404);
-}
-
-export function canReport(session, match, now) {
-  return !session.closed && session.date === day(now) && isTuesday(session.date) && match.status === 'finished' && !match.score && !match.scoreDeleted;
-}
-
-export function addReport(club, code, data, now) {
-  const { session, match } = lookupMatch(club, code);
-  requireRule(canReport(session, match, now), 'Laporan skor sudah ditutup atau pertandingan belum selesai.', 409);
-  requireRule(match.teams.flat().includes(data.playerId), 'Pilih nama pemain di pertandingan ini.');
-  requireRule(validScore(data.score), 'Skor belum sesuai aturan satu gim sampai 21, maksimal 30.');
-  if (match.reports.some(report => report.playerId === data.playerId && report.status === 'pending' && report.score.every((value, index) => value === data.score[index]))) return;
-  requireRule(match.reports.filter(report => report.playerId === data.playerId).length < 8, 'Batas laporan tercapai. Hubungi host untuk pembetulan.', 409);
-  requireRule(match.reports.filter(report => report.playerId === data.playerId && report.status === 'pending').length < 3, 'Sudah ada tiga usulan. Hubungi host untuk pembetulan.', 409);
-  match.reports.push({ id: id(), playerId: data.playerId, score: data.score, at: now.toISOString(), status: 'pending' });
 }
 
 export function addSignup(club, data, now) {
@@ -447,7 +448,7 @@ export function clubView(club, now, host = false) {
       id: player.id, name: player.name, nickname: player.nickname, display: label(player), archived: player.archived,
       tier: tierOf(stats.rating), calibration: stats.usesCalibration ? Math.min(5, stats.games) : null, games: stats.games,
       wins: stats.wins, losses: stats.losses, history: stats.history,
-      ...(host ? { initialTier: player.initialTier ?? null } : {}),
+      ...(host ? { initialTier: player.initialTier ?? null, gender: player.gender ?? null } : {}),
     };
   });
   const active = roster.filter(player => !player.archived);
@@ -477,18 +478,8 @@ export function clubView(club, now, host = false) {
           return { id: player.id, display: player.display, tier: player.tier };
         })),
         score: match.score,
-        ...(host ? { scoreDeleted: Boolean(match.scoreDeleted), revision: match.revision, reports: match.reports, audit: match.audit, reportOpen: canReport(session, match, now) } : {}),
+        ...(host ? { scoreDeleted: Boolean(match.scoreDeleted), revision: match.revision, audit: match.audit } : {}),
       })),
     })),
   };
 }
-
-export function reportView(club, code, now) {
-  const { session, match } = lookupMatch(club, code);
-  const players = new Map(club.players.map(player => [player.id, label(player)]));
-  return {
-    open: canReport(session, match, now), date: session.date, court: match.court, score: match.score,
-    status: match.status, teams: match.teams.map(team => team.map(playerId => ({ id: playerId, display: players.get(playerId) }))),
-  };
-}
-

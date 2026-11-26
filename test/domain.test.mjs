@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyHost, canReport, clubView, day, newClub, nextTuesday, RuleError, standings, suggest, validScore } from '../domain.mjs';
+import { applyHost, clubView, day, newClub, nextTuesday, RuleError, standings, suggest, validScore } from '../domain.mjs';
 
 const monday = new Date('2026-11-23T16:59:59Z');
 const tuesday = new Date('2026-11-23T17:00:00Z');
@@ -21,11 +21,11 @@ function queuedMatch() {
   return { club, session, match };
 }
 
-test('skor satu gim menerima hasil yang sah dan menolak skor di luar batas', () => {
-  const accepted = [[21, 0], [19, 21], [22, 20], [27, 29], [30, 28], [29, 30]];
+test('skor menerima dua angka bulat berbeda dan menolak hasil tanpa pemenang', () => {
+  const accepted = [[0, 1], [11, 7], [20, 18], [21, 20], [30, 27], [42, 40]];
   const rejected = [
     null, [21], [21, 19, 0], [21, '19'], [21, -1], [21, 18.5],
-    [20, 18], [21, 20], [22, 19], [22, 21], [29, 29], [30, 27], [31, 29],
+    [0, 0], [29, 29], [Number.MAX_SAFE_INTEGER + 1, 0],
   ];
   for (const score of accepted) assert.equal(validScore(score), true, JSON.stringify(score));
   for (const score of rejected) assert.equal(validScore(score), false, JSON.stringify(score));
@@ -114,17 +114,6 @@ test('host bisa membatalkan laga yang masih antre, sedangkan laga berskor resmi 
   assert.throws(() => applyHost(club, { ...action, matchId: scored.id }, tuesday, 'host'), isConflict);
   assert.equal(scored.status, 'finished');
   assert.deepEqual(scored.score, [21, 15]);
-});
-
-test('QR hanya menerima laporan pada tanggal sesi untuk laga selesai tanpa skor resmi', () => {
-  const { session, match } = queuedMatch();
-  assert.equal(canReport(session, match, tuesday), false);
-  match.status = 'finished';
-  assert.equal(canReport(session, match, monday), false);
-  assert.equal(canReport(session, match, tuesday), true);
-  assert.equal(canReport(session, match, wednesday), false);
-  assert.equal(canReport({ ...session, closed: true }, match, tuesday), false);
-  assert.equal(canReport(session, { ...match, score: [21, 15] }, tuesday), false);
 });
 
 test('saran tim memberi pasangan baru untuk pemain dengan tier dan waktu tunggu yang sama', () => {

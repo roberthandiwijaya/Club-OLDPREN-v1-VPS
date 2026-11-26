@@ -62,6 +62,23 @@ test('tautan anggota hanya bisa baca, tanpa akses host atau rating internal', as
   assert.equal((await request('/api/host', { action: 'addPlayer', name: 'Nama lain' }, cookie, { Origin: 'https://other.example' })).status, 403);
 });
 
+test('gender pemain opsional, bisa diubah host, dan bersifat privat di API anggota', async t => {
+  const { request, login, members } = await fixture(t);
+  const cookie = await login();
+  const add = { action: 'addPlayer', name: 'Ayu Contoh', gender: 'wanita' };
+  assert.equal((await request('/api/host', add)).status, 401);
+  assert.equal((await request('/api/host', { ...add, gender: 'invalid' }, cookie)).status, 400);
+  const created = await request('/api/host', add, cookie);
+  assert.equal(created.status, 200);
+  const [player] = created.value.players;
+  assert.equal(player.gender, 'wanita');
+  assert.equal(Object.hasOwn((await members()).value.players[0], 'gender'), false);
+  const edit = { action: 'editPlayer', playerId: player.id, name: player.name };
+  assert.equal((await request('/api/host', edit, cookie)).value.players[0].gender, 'wanita');
+  assert.equal((await request('/api/host', { ...edit, gender: 'pria' }, cookie)).value.players[0].gender, 'pria');
+  assert.equal((await request('/api/host', { ...edit, gender: null }, cookie)).value.players[0].gender, null);
+});
+
 
 
 async function sessionWithPlayers(f, count = 4, date) {
@@ -73,7 +90,7 @@ async function sessionWithPlayers(f, count = 4, date) {
     return result.value;
   };
   let view;
-  const names = ['Dimas Saputra', 'Galih Pratama', 'Bima Wirawan', 'Heru Aji', 'Agus Andika', 'Doni Adi', 'Indra Wijaya', 'Irfan Saputra'];
+  const names = ['Dimas Saputra', 'Galih Pratama', 'Bima Wirawan', 'Heru Aji', 'Agus Andika', 'Doni Adi', 'Indra Wijaya', 'Irfan Saputra', ...Array.from({ length: 8 }, (_, index) => 'Pemain tambahan ' + (index + 1))];
   for (const name of names.slice(0, count)) view = await write({ action: 'addPlayer', name, nickname: name.split(' ')[0] });
   const players = names.slice(0, count).map(name => view.players.find(player => player.name === name).id);
   view = await write({ action: 'openSession', courts: 2, date });
@@ -87,10 +104,8 @@ async function sessionWithPlayers(f, count = 4, date) {
   const operate = (action, matchId) => write({ action, sessionId, matchId });
   const start = matchId => operate('startMatch', matchId);
   const finish = matchId => operate('finishMatch', matchId);
-  const score = (matchId, score, revision = 0, reportId) => write({ action: 'score', sessionId, matchId, revision, score, reportId });
-  const qr = matchId => f.request('/api/host/qr/' + matchId, undefined, cookie);
-  const reportPath = async matchId => '/api/report/' + (await qr(matchId)).value.url.split('/').at(-1);
-  return { cookie, act, write, players, sessionId, teams, create, start, finish, score, qr, reportPath, origin: f.origin };
+  const score = (matchId, score, revision = 0) => write({ action: 'score', sessionId, matchId, revision, score });
+  return { cookie, act, write, players, sessionId, teams, create, start, finish, score };
 }
 
 test('host mengelola nomor lapangan per sesi tanpa mengubah riwayat laga', async t => {
@@ -128,7 +143,7 @@ test('host dapat menghapus hanya skor pilihan dari riwayat anggota dan statistik
   assert.equal((await s.act({ ...payload, revision: 0 })).status, 409);
   const v = await s.write(payload);
   const deleted = v.sessions[0].matches.find(m => m.id === remove);
-  assert.equal(deleted.score, null); assert.equal(deleted.reportOpen, false);
+  assert.equal(deleted.score, null);
   assert.equal(deleted.scoreDeleted, true);
   assert.equal((await s.act(payload)).status, 409);
   await s.write({ action: 'closeSession', sessionId: s.sessionId });
@@ -142,7 +157,7 @@ test('host dapat menghapus hanya skor pilihan dari riwayat anggota dan statistik
   assert.deepEqual((await f.members()).value.sessions[0].matches.map(m => m.id), [remove]);
 });
 
-test('hapus laga hanya menghapus satu laga selesai beserta skor, laporan, dan akses QR', async t => {
+test('hapus laga hanya menghapus satu laga selesai beserta skor', async t => {
   const f = await fixture(t), s = await sessionWithPlayers(f);
   const keep = await s.create(); await s.start(keep); await s.finish(keep); await s.score(keep, [21, 18]);
   const remove = await s.create();
@@ -151,8 +166,6 @@ test('hapus laga hanya menghapus satu laga selesai beserta skor, laporan, dan ak
   assert.equal((await s.act(payload)).status, 409);
   await s.start(remove); assert.equal((await s.act(payload)).status, 409);
   await s.finish(remove);
-  const report = await s.reportPath(remove);
-  assert.equal((await f.request(report, { playerId: s.players[0], score: [18, 21] })).status, 201);
   await s.score(remove, [18, 21]);
   assert.equal((await s.act(payload)).status, 409);
   await s.write({ action: 'closeSession', sessionId: s.sessionId });
@@ -161,7 +174,6 @@ test('hapus laga hanya menghapus satu laga selesai beserta skor, laporan, dan ak
   const members = (await f.members()).value;
   assert.deepEqual(members.sessions[0].matches.map(m => [m.id, m.score]), [[keep, [21, 18]]]);
   assert.ok(members.players.every(p => p.games === 1));
-  assert.equal((await f.request(report)).status, 404);
   assert.equal((await s.act({ ...payload, revision: 1 })).status, 409);
   const hidden = await s.write({ ...payload, action: 'deleteScore', matchId: keep, revision: 1 });
   const empty = await s.write({ ...payload, matchId: keep, revision: hidden.sessions[0].matches[0].revision });
@@ -280,43 +292,24 @@ test('anggota mendaftar sendiri sekali per tanggal WIB, host mengonfirmasi hadir
   assert.deepEqual(nextSignup.value.signup.playerIds, [s.players[1]]);
 });
 
-test('QR hanya tersedia setelah laga selesai, laporan bersaing menunggu keputusan host', async t => {
-  const f = await fixture(t);
-  const s = await sessionWithPlayers(f);
+test('skor hanya diisi host setelah laga selesai, pada skor akhir berapa pun', async t => {
+  const f = await fixture(t), s = await sessionWithPlayers(f);
   const matchId = await s.create();
-  assert.equal((await s.qr(matchId)).status, 409);
+  const payload = { action: 'score', sessionId: s.sessionId, matchId, revision: 0, score: [11, 7] };
+  assert.equal((await s.act(payload)).status, 409);
   await s.start(matchId);
-  assert.equal((await s.qr(matchId)).status, 409);
   await s.finish(matchId);
-  const reportPath = await s.reportPath(matchId);
-  const qrImage = await fetch(s.origin + '/api/host/qr/' + matchId + '/image', { headers: { Cookie: s.cookie } });
-  assert.equal(qrImage.status, 200);
-  assert.equal(qrImage.headers.get('content-type'), 'image/png');
-  assert.deepEqual([...new Uint8Array(await qrImage.arrayBuffer()).slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  assert.equal((await f.request(reportPath, { playerId: 'someone-else', score: [21, 10] })).status, 400);
-  for (const score of [[21, 20], [22, 19], [30, 27], [29, 28], ['21', 0]]) {
-    assert.equal((await f.request(reportPath, { playerId: s.players[0], score })).status, 400);
-  }
-  assert.equal((await f.request(reportPath, { playerId: s.players[0], score: [30, 29] })).status, 201);
-  assert.equal((await f.request(reportPath, { playerId: s.players[1], score: [21, 9] })).status, 201);
-  assert.equal((await f.request(reportPath, { playerId: s.players[1], score: [21, 9] })).status, 201);
-  const host = (await f.request('/api/host', undefined, s.cookie)).value;
-  const [wrong, right] = host.sessions[0].matches[0].reports;
-  assert.equal(host.sessions[0].matches[0].reports.length, 2);
-  assert.equal(wrong.status, 'pending');
-  let memberView = (await f.members()).value;
-  assert.equal(memberView.sessions[0].matches[0].reports, undefined);
-  assert.equal(memberView.sessions[0].matches[0].score, null);
-  assert.ok(memberView.players.every(player => player.tier === 'F' && player.games === 0));
-  await s.write({ action: 'rejectReport', sessionId: s.sessionId, matchId, reportId: wrong.id, revision: 0 });
-  assert.equal((await s.act({ action: 'score', sessionId: s.sessionId, matchId, revision: 0, score: [21, 9], reportId: right.id })).status, 409);
-  await s.score(matchId, [21, 9], 1, right.id);
-  assert.equal((await f.request(reportPath, { playerId: s.players[0], score: [21, 8] })).status, 409);
-  memberView = (await f.members()).value;
-  assert.deepEqual(memberView.sessions[0].matches[0].score, [21, 9]);
-  assert.equal(memberView.players.find(player => player.id === s.players[0]).tier, 'F');
-  assert.equal(memberView.players.find(player => player.id === s.players[0]).calibration, 1);
-  assert.doesNotMatch(JSON.stringify(memberView), /"(?:rating|code|audit|reports|delta)"\s*:/);
+  assert.equal((await f.request('/api/report/old-code', { score: [11, 7] })).status, 404);
+  assert.equal((await f.request('/r/old-code')).status, 404);
+  assert.equal((await f.request('/api/host', payload)).status, 401);
+  assert.equal((await s.act({ ...payload, score: [11, 11] })).status, 400);
+  assert.equal((await f.members()).value.sessions[0].matches[0].score, null);
+  assert.equal((await s.act(payload)).status, 200);
+  assert.deepEqual((await f.members()).value.sessions[0].matches[0].score, [11, 7]);
+  await s.score(matchId, [42, 40], 1);
+  const memberView = (await f.members()).value;
+  assert.deepEqual(memberView.sessions[0].matches[0].score, [42, 40]);
+  assert.equal(memberView.players.find(player => player.id === s.players[0]).games, 1);
 });
 
 test('host memilih Selasa yang ditampilkan ke anggota dan bisa menjadwal ulang sebelum laga pertama', async t => {
@@ -418,34 +411,35 @@ test('saran lapangan minimum dua dan naik pada peserta ke-21 dan ke-28', async t
   assert.equal(opened.value.sessions[0].courts, 4);
 });
 
-test('QR ditutup tepat tengah malam WIB atau saat sesi ditutup, host tetap bisa isi skor', async t => {
-  const f = await fixture(t);
-  const s = await sessionWithPlayers(f);
-  const first = await s.create();
-  await s.start(first);
-  await s.finish(first);
-  const firstReport = await s.reportPath(first);
-  const second = await s.create();
-  await s.start(second);
-  await s.finish(second);
-  const secondReport = await s.reportPath(second);
-  f.setTime('2026-11-24T16:59:59Z');
-  assert.equal((await f.request(firstReport)).value.open, true);
-  f.setTime('2026-11-24T17:00:00Z');
-  assert.equal((await f.request(firstReport)).value.open, false);
-  assert.equal((await f.request(firstReport, { playerId: s.players[0], score: [21, 9] })).status, 409);
-  f.setTime('2026-11-24T16:59:59Z');
+test('host masih bisa mengisi skor setelah menutup sesi', async t => {
+  const f = await fixture(t), s = await sessionWithPlayers(f);
+  const match = await s.create();
+  await s.start(match);
+  await s.finish(match);
   await s.write({ action: 'closeSession', sessionId: s.sessionId });
-  assert.equal((await f.request(secondReport)).value.open, false);
-  assert.equal((await f.members()).value.sessions[0].matches[1].status, 'unscored');
+  assert.equal((await f.members()).value.sessions[0].matches[0].status, 'unscored');
   f.setTime('2026-11-25T02:00:00Z');
-  await s.score(second, [22, 20]);
-  assert.deepEqual((await f.members()).value.sessions[0].matches[1].score, [22, 20]);
+  await s.score(match, [22, 20]);
+  assert.deepEqual((await f.members()).value.sessions[0].matches[0].score, [22, 20]);
+});
+
+test('host mengubah status beberapa pemain sekaligus dan tidak menyimpan sebagian jika ada id tidak valid', async t => {
+  const f = await fixture(t), s = await sessionWithPlayers(f);
+  const playerIds = s.players.slice(0, 2);
+  const payload = { action: 'bulkAttendance', sessionId: s.sessionId, playerIds, status: 'rest' };
+  assert.equal((await f.request('/api/host', payload)).status, 401);
+  assert.equal((await s.act({ ...payload, playerIds: [playerIds[0], 'tidak-ada'] })).status, 404);
+  const unchanged = await f.request('/api/host', undefined, s.cookie);
+  assert.equal(unchanged.value.sessions[0].attendance[playerIds[0]].status, 'ready');
+  const updated = await s.write(payload);
+  const attendance = updated.sessions[0].attendance;
+  assert.deepEqual(playerIds.map(id => attendance[id].status), ['rest', 'rest']);
+  assert.equal(attendance[s.players[2]].status, 'ready');
 });
 
 test('host mengunci pemain, bisa antrekan laga lain, dan pemain tidak aktif di dua lapangan', async t => {
   const f = await fixture(t);
-  const s = await sessionWithPlayers(f, 8);
+  const s = await sessionWithPlayers(f, 16);
   const suggestion = await f.request('/api/host/suggest', { sessionId: s.sessionId, locked: [s.players[0], null, null, null] }, s.cookie);
   assert.equal(suggestion.status, 200);
   assert.deepEqual(suggestion.value.teams, suggestion.value.alternatives[0]);
@@ -457,11 +451,27 @@ test('host mengunci pemain, bisa antrekan laga lain, dan pemain tidak aktif di d
   assert.equal((await s.act({ action: 'createMatch', court: 2, sessionId: s.sessionId, teams: s.teams })).status, 409);
   const next = await s.create(1, [s.players.slice(4, 6), s.players.slice(6, 8)]);
   assert.equal((await s.act({ action: 'startMatch', sessionId: s.sessionId, matchId: next })).status, 409);
+  const last = await s.create(1, [s.players.slice(8, 10), s.players.slice(10, 12)]);
+  assert.equal((await s.act({ action: 'createMatch', court: 1, sessionId: s.sessionId, teams: [s.players.slice(12, 14), s.players.slice(14, 16)] })).status, 409);
   await s.finish(first);
-  await s.start(next);
   const view = (await f.members()).value.sessions[0];
-  assert.equal(view.matches[1].status, 'active');
+  assert.equal(view.matches.find(match => match.id === next).status, 'active');
+  assert.equal(view.matches.find(match => match.id === last).status, 'queued');
   assert.equal(view.matches[0].score, null);
+  await s.write({ action: 'attendance', sessionId: s.sessionId, playerId: s.players[8], status: 'rest' });
+  await s.finish(next);
+  const lastMatch = (await f.members()).value.sessions[0].matches.find(match => match.id === last);
+  assert.equal(lastMatch.status, 'queued');
+  const edit = { action: 'editQueuedMatch', sessionId: s.sessionId, matchId: last, revision: 0 };
+  assert.equal((await s.act({ ...edit, matchId: first, teams: s.teams })).status, 409);
+  const replacement = [[s.players[12], s.players[9]], s.players.slice(10, 12)];
+  const updated = await s.write({ ...edit, teams: replacement });
+  assert.deepEqual(updated.sessions[0].matches.map(match => match.id), [first, next, last]);
+  assert.deepEqual(updated.sessions[0].matches.at(-1).teams.map(team => team.map(player => player.id)), replacement);
+  assert.equal((await s.act({ ...edit, teams: replacement })).status, 409);
+  await s.start(last);
+  assert.equal((await s.act({ ...edit, revision: 1, teams: replacement })).status, 409);
+  await s.score(first, [9, 4]);
 });
 
 test('koreksi skor dihitung ulang sekali sesuai urutan pertandingan, kalibrasi selesai setelah lima skor resmi', async t => {

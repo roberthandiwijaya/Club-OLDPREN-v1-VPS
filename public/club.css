@@ -160,6 +160,13 @@ select { max-width: 100%; }
 .host-list .compact-label { min-width: 110px; }
 .host-list select { min-height: 36px; padding: 4px 6px; }
 .host-list .actions { flex: 0 0 auto; }
+.host-list li[hidden] { display: none; }
+.attendance-check { display: flex; align-items: center; gap: 7px; min-height: 38px; }
+.attendance-check input { width: 17px; height: 17px; min-height: 0; margin: 0; accent-color: var(--navy); }
+.attendance-person { display: flex; align-items: center; gap: 8px; }
+.attendance-person > div { min-width: 0; }
+.attendance-bulk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.attendance-bulk label { margin-bottom: 4px; }
 .roster-page { max-width: 760px; margin-inline: auto; }
 .roster-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .roster-heading h1 { font-size: clamp(1.42rem, 4.8vw, 2.1rem); line-height: 1.15; letter-spacing: -.045em; }
@@ -167,6 +174,10 @@ select { max-width: 100%; }
 .roster-list { list-style: none; margin: 0; padding: 0; }
 .roster-list li { display: grid; grid-template-columns: minmax(0, 1fr) 32px auto; align-items: center; gap: 9px; padding-block: 10px; border-top: 1px solid var(--line); }
 .roster-list strong { display: block; font-size: .9rem; line-height: 1.38; overflow-wrap: anywhere; }
+.roster-list .roster-name { display: flex; align-items: flex-start; gap: 4px; }
+.gender-icon { flex: 0 0 16px; height: 16px; margin-top: 1px; }
+.gender-pria { color: #1764b0; }
+.gender-wanita { color: #be356d; }
 .roster-list small { display: block; margin-top: 2px; }
 .roster-edit { min-width: 48px; min-height: 40px; }
 .roster-archive { width: 100%; min-height: 42px; margin-top: 8px; color: var(--muted); font-size: .84rem; font-weight: 700; }
@@ -181,10 +192,6 @@ select { max-width: 100%; }
 .member-court .team { border: 0; background: #f1f4f2; }
 .member-court .match .section-head { margin-bottom: 8px; }
 .versus { font-style: italic; font-weight: 850; font-size: .8rem; color: var(--navy); }
-.matchup { background: var(--navy); color: white; }
-.matchup h2 { margin-bottom: 10px; }
-.matchup .team { background: transparent; border-color: #79909f; }
-.matchup .team > span, .matchup .versus { color: var(--lime); }
 .result { font-size: 1.4rem; font-weight: 850; font-variant-numeric: tabular-nums; }
 .score-fields, .form-grid, .stat-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .score-fields input { text-align: center; font: 800 2rem/1.2 Inter, sans-serif; min-height: 76px; }
@@ -205,7 +212,6 @@ legend { padding-inline: 4px; font-weight: 800; }
 .compose-teams fieldset { gap: 8px; padding: 9px 10px 11px; background: #f8faf9; }
 .compose-teams legend { color: var(--navy); font-size: .92rem; }
 .compose-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.qr { display: block; margin: 12px auto; width: min(100%, 288px); height: auto; }
 .stat-row { grid-template-columns: repeat(4, minmax(0, 1fr)); text-align: center; background: var(--background); padding: 10px; border-radius: 6px; }
 .stat-row dd { font-size: 1.25rem; }
 .profile-tier { font-size: .86rem; color: var(--muted); }

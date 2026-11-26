@@ -58,8 +58,8 @@ export async function member(path) {
       '</table></div></section>' + sessionSummary() + '</div>';
   }
 
-  function memberMatch(match, nicknames) {
-    return '<article class="match"><div class="section-head">' + badge(match.score ? 'Skor resmi' : matchStatus[match.status]) +
+  function memberMatch(match, nicknames, queuePosition) {
+    return '<article class="match"><div class="section-head">' + badge(queuePosition ? 'Antrean ' + queuePosition : match.score ? 'Skor resmi' : matchStatus[match.status]) +
       (match.score ? '<strong class="result">' + scoreText(match.score) + '</strong>' : '') + '</div>' + teams(match, { nicknames }) + '</article>';
   }
 
@@ -69,7 +69,8 @@ export async function member(path) {
       badge(session.courts + ' lapangan · ' + session.present + ' hadir') + '</div><div class="court-grid">' +
       session.activeCourts.map(court => {
         const matches = session.matches.filter(match => match.court === court && ['active', 'queued'].includes(match.status));
-        return '<article class="panel member-court"><h3>Lapangan ' + court + '</h3>' + (matches.length ? matches.sort((a, b) => a.status.localeCompare(b.status)).map(match => memberMatch(match, nicknames)).join('') : empty('Belum ada pertandingan.')) + '</article>';
+        let queuePosition = 0;
+        return '<article class="panel member-court"><h3>Lapangan ' + court + '</h3>' + (matches.length ? matches.sort((a, b) => a.status.localeCompare(b.status)).map(match => memberMatch(match, nicknames, match.status === 'queued' ? ++queuePosition : 0)).join('') : empty('Belum ada pertandingan.')) + '</article>';
       }).join('') + '</div></section>';
   }
 

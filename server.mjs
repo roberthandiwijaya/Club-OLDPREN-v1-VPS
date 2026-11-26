@@ -1,11 +1,9 @@
 import express from 'express';
-import QRCode from 'qrcode';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, timingSafeEqual, scryptSync, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
-  newClub, RuleError, requireRule, applyHost, addReport, addSignup, suggestOptions,
-  clubView, reportView, canReport,
+  newClub, RuleError, requireRule, applyHost, addSignup, suggestOptions, clubView,
 } from './domain.mjs';
 
 const publicFolder = fileURLToPath(new URL('./public/', import.meta.url));
@@ -127,6 +125,7 @@ export function createApp({ database, groupKey, publicUrl, accounts, allowLocalB
     res.set('Cache-Control', 'no-store');
     next();
   });
+  app.use('/api/host', express.json({ limit: '48kb' }));
   app.use('/api', express.json({ limit: '8kb' }));
   app.use('/api', (req, res, next) => {
     if (req.method === 'POST') {
@@ -217,16 +216,6 @@ export function createApp({ database, groupKey, publicUrl, accounts, allowLocalB
     const alternatives = suggestOptions(club, session, req.body.locked);
     res.json({ teams: alternatives[0], alternatives });
   });
-  app.get('/api/host/qr/:matchId{/:format}', hostSession, async (req, res) => {
-    const club = load();
-    const session = club.sessions.find(item => item.matches.some(match => match.id === req.params.matchId));
-    const match = session?.matches.find(item => item.id === req.params.matchId);
-    requireRule(match && canReport(session, match, clock()), 'QR belum tersedia atau sudah ditutup.', 409);
-    const url = origin.origin + '/r/' + match.code;
-    if (req.params.format === 'image') return res.type('png').send(await QRCode.toBuffer(url, { margin: 3, width: 288 }));
-    res.json({ url });
-  });
-
   function checkGroup(req, res, next) {
     requireRule(equal(req.params.key, groupKey), 'Tautan grup tidak ditemukan.', 404);
     next();
@@ -239,18 +228,12 @@ export function createApp({ database, groupKey, publicUrl, accounts, allowLocalB
       return clubView(club, now);
     }));
   });
-  app.get('/api/report/:code', (req, res) => res.json(reportView(load(), req.params.code, clock())));
-  app.post('/api/report/:code', (req, res) => {
-    change(club => addReport(club, req.params.code, req.body, clock()));
-    res.status(201).json({ ok: true });
-  });
-
   const shell = (req, res) => res.sendFile(publicFolder + 'index.html');
   app.get('/', (req, res) => {
     const tab = ['tierlist', 'riwayat', 'mvp'].includes(req.query.tab) ? req.query.tab : 'sesi';
     res.redirect(302, groupPath + '#' + tab);
   });
-  app.get(['/host', '/r/:code'], shell);
+  app.get('/host', shell);
   app.get('/c/:key', checkGroup, shell);
   app.get('/healthz', (req, res) => res.type('text').send('ok'));
   app.use((req, res) => res.status(404).json({ error: 'Halaman tidak ditemukan.' }));

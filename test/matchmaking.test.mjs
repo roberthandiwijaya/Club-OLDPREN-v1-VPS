@@ -12,7 +12,7 @@ function fixture(n) {
     club.players.push({id,name:id,initialTier:'F'});
     session.attendance[id] = {status:'ready',since:time};
   }
-  return {club,session,ids,options:(pins=Array(4).fill(null))=>suggestOptions(club,session,pins)};
+  return {club,session,ids,options:(pins=Array(4).fill(null), pick=()=>0)=>suggestOptions(club,session,pins,pick)};
 }
 const key = teams => teams.map(team=>team.slice().sort().join(':')).sort().join('/');
 
@@ -40,7 +40,17 @@ test('partner and opponent scoring is independent of team and player order',()=>
   assert.deepEqual(f.options().map(key),prior);
 });
 test('a large tied roster samples beyond the front of the queue and rotates previews',()=>{
-  const f=fixture(1000);const options=f.options();assert.equal(options.length,5);
+  const f=fixture(1000);const options=f.options(undefined, max => Math.floor(max / 2));assert.equal(options.length,5);
   assert.ok(options[0].flat().some(id=>f.ids.indexOf(id)>16));
   assert.equal(new Set([...options[0].flat(),...options[1].flat()]).size,8);
+});
+
+test('pilihan pertama bisa berganti di antara pemain dengan giliran dan kekuatan yang sama', () => {
+  const f = fixture(24);
+  const pins = [f.ids[0], null, null, null];
+  const first = f.options(pins, () => 0)[0];
+  const second = f.options(pins, max => max - 1)[0];
+  assert.equal(first[0][0], f.ids[0]);
+  assert.equal(second[0][0], f.ids[0]);
+  assert.notDeepEqual(new Set(first.flat()), new Set(second.flat()));
 });
